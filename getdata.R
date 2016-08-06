@@ -15,8 +15,7 @@ dataGameY <- lapply(dataGame, as.data.frame)
 parseSeason <- function(season){
   season$GID <- paste(paste(season$Date, season$ParkID, sep = "-"), season$DblHdr, sep = "")
   season$Date <- as.Date(season$Date, "%Y%m%d")
-  season$DblHdr <- factor(season$DblHdr, c(0, 1, 2, 3), 
-                          c("Single", "First", "Second"))
+  season$DblHdr <- as.factor(season$DblHdr)
   # Florida Marlins changed to Miami Marlins
   season$VisTm[season$VisTm == "FLO"] <- "MIA"
   season$VisTm <- factor(season$VisTm, teamIds)
@@ -57,7 +56,7 @@ names(dataSeasons) <- c("S2010", "S2011", "S2012", "S2013", "S2014", "S2015")
 parseMatches <- function(season){
   tmp <- ddply(season, "Date", function(x) dcast(x, GID ~ Team, sum, value.var = "HmVis"))
   tmp[is.na(tmp)] <- 0
-  tmp <- tmp[c("Date", teamIds, "GID")] # match the column order
+  tmp <- tmp[c("Date", "GID", teamIds)] # match the column order
   return(tmp)
 }
 
@@ -68,16 +67,18 @@ head(matchSeasons$S2010)
 
 # Y data frame: score differences by date for each game
 # scoreSeasons <- lapply(dataSeasons, function(x) dcast(x, Date ~ Team, sum, value.var = "ScoreDiff"))
-scoreSeasons <- lapply(dataSeasons, function(x) subset(x, HmVis == 1, select = c("Date", "ScoreDiff", "GID")))
+scoreSeasons <- lapply(dataSeasons, function(x) subset(x, HmVis == 1, select = c("Date", "GID", "ScoreDiff")))
 names(scoreSeasons) <- c("S2010", "S2011", "S2012", "S2013", "S2014", "S2015")
 
 head(scoreSeasons$S2010)
 
-# U data frame: covariates matrices by date
+# D data frame: covariates matrices by date
 parseCovs <- function(season){
-  season$Mth <- months(season$Date)
   row.names(season) <- NULL
-  return(subset(season, select = c("Date", "Mth", "DblHdr", "DayNight", "ParkID", "GID")))
+  return(subset(season,
+                HmVis == 1,
+                select = c("Date", "GID", "DblHdr", "DayNight", "ParkID")
+                ))
 }
 
 covSeasons <- lapply(dataSeasons, parseCovs)
@@ -86,3 +87,4 @@ names(covSeasons) <- c("S2010", "S2011", "S2012", "S2013", "S2014", "S2015")
 head(covSeasons$S2010)
 
 save(matchSeasons, scoreSeasons, covSeasons, file = "./data/parsedData.RData")
+load("./data/parsedData.RData")
