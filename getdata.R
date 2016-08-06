@@ -12,7 +12,7 @@ dataGame <- lapply(yrs, function(x) getPartialGamelog(x, fields))
 dataGameY <- lapply(dataGame, as.data.frame)
 
 parseSeason <- function(season){
-  season$GID <- paste(paste(season$Date, season$Host, sep = "-"), season$DblHdr, sep = "")
+  season$GID <- paste(paste(season$Date, season$HmTm, sep = "-"), season$DblHdr, sep = "")
   season$Tind <- as.numeric(factor(season$Date))
   season$Date <- as.Date(season$Date, "%Y%m%d")
   season$DblHdr <- as.factor(season$DblHdr)
@@ -49,11 +49,12 @@ parseSeason <- function(season){
 
 dataSeasons <- lapply(dataGameY, parseSeason)
 names(dataSeasons) <- c("S2010", "S2011", "S2012", "S2013", "S2014", "S2015")
-
+head(dataSeasons$S2010)
 # C data frame: match matrices by date with each row representing a single game 
 #               (home team: 1; away team: -1)
 parseMatches <- function(season){
-  tmp <- ddply(season, c("Date", "Tind"), function(x) dcast(x, GID ~ Team, sum, value.var = "HmVis"))
+  tmp <- ddply(season, c("Date", "Tind"), 
+               function(x) dcast(x, GID ~ Team, sum, value.var = "HmVis"))
   tmp[is.na(tmp)] <- 0
   tmp <- tmp[c("Date", "Tind", teamIds)] # match the column order
   return(tmp)
@@ -65,7 +66,8 @@ names(matchSeasons) <- c("S2010", "S2011", "S2012", "S2013", "S2014", "S2015")
 head(matchSeasons$S2010)
 
 # Y data frame: score differences by date for each game
-scoreSeasons <- lapply(dataSeasons, function(x) subset(x, HmVis == 1, select = c("Date", "Tind", "ScoreDiff")))
+scoreSeasons <- lapply(dataSeasons, function(x) subset(x, HmVis == 1, 
+                  select = c("Date", "Tind", "ScoreDiff")))
 names(scoreSeasons) <- c("S2010", "S2011", "S2012", "S2013", "S2014", "S2015")
 
 head(scoreSeasons$S2010)
