@@ -5,15 +5,14 @@ yrs <- c(2010:2015)
 teamIds <- unique(c(sapply(yrs, getTeamIDs)))
 # Florida Marlins changed to Miami Marlins
 teamIds <- teamIds[teamIds != "FLO"]
-parkIds <- c(getParkIDs())
 
-# Variables: Teams, Scores, Date; DblHdr; ParkID; 
-fields <- c("HmTm", "VisTm", "HmLine", "VisLine", "Date", "DblHdr", "ParkID")
+# Variables: Teams, Scores, Date; DblHdr; 
+fields <- c("HmTm", "VisTm", "HmLine", "VisLine", "Date", "DblHdr")
 dataGame <- lapply(yrs, function(x) getPartialGamelog(x, fields)) 
 dataGameY <- lapply(dataGame, as.data.frame)
 
 parseSeason <- function(season){
-  season$GID <- paste(paste(season$Date, season$ParkID, sep = "-"), season$DblHdr, sep = "")
+  season$GID <- paste(paste(season$Date, season$Host, sep = "-"), season$DblHdr, sep = "")
   season$Tind <- as.numeric(factor(season$Date))
   season$Date <- as.Date(season$Date, "%Y%m%d")
   season$DblHdr <- as.factor(season$DblHdr)
@@ -22,7 +21,7 @@ parseSeason <- function(season){
   season$VisTm <- factor(season$VisTm, teamIds)
   season$HmTm[season$HmTm == "FLO"] <- "MIA"
   season$HmTm <- factor(season$HmTm, teamIds)
-  season$ParkID <- factor(season$ParkID, parkIds$PARKID)
+  season$Host <- season$HmTm
   season$ScoreDiffHm <- 
     sapply(strsplit(season$HmLine, ""), 
            function(x) sum(as.numeric(x), na.rm = TRUE)) -
@@ -30,22 +29,22 @@ parseSeason <- function(season){
            function(x) sum(as.numeric(x), na.rm = TRUE))
   
   tmpVis <- subset(season, select = c("GID", "Tind", "Date", "DblHdr", "VisTm", 
-                                      "ParkID", "ScoreDiffHm"))
+                                      "Host", "ScoreDiffHm"))
   names(tmpVis) <- c("GID", "Tind", "Date", "DblHdr", "Team", 
-                     "ParkID", "ScoreDiff")
+                     "Host", "ScoreDiff")
   tmpVis$ScoreDiff <- -tmpVis$ScoreDiff
   tmpVis$HmVis <- -1
   
   
   tmpHm <- subset(season, select = c("GID", "Tind", "Date", "DblHdr", "HmTm", 
-                                      "ParkID", "ScoreDiffHm"))
+                                      "Host", "ScoreDiffHm"))
   names(tmpHm) <- c("GID", "Tind", "Date", "DblHdr", "Team", 
-                     "ParkID", "ScoreDiff")
+                     "Host", "ScoreDiff")
   tmpHm$HmVis <- 1
   
   
   tmp <- rbind(tmpVis, tmpHm)
-  return(tmp[order(tmp$Date, tmp$ParkID), ])
+  return(tmp[order(tmp$Date, tmp$Host), ])
 }
 
 dataSeasons <- lapply(dataGameY, parseSeason)
@@ -73,11 +72,10 @@ head(scoreSeasons$S2010)
 
 # D data frame: covariates matrices by date
 parseCovs <- function(season){
-  row.names(season) <- NULL
-  return(subset(season,
-                HmVis == 1,
-                select = c("Date", "Tind", "DblHdr", "ParkID")
-                ))
+  tmp <- subset(season, HmVis == 1, select = c("Date", "Tind", "DblHdr", "Host"))
+  row.names(tmp) <- NULL
+  tmp <- cbind(tmp[,c(1,2)], model.matrix(~tmp$DblHdr + tmp$Host)[,-1])
+  return(tmp)
 }
 
 covSeasons <- lapply(dataSeasons, parseCovs)
