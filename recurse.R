@@ -1,6 +1,5 @@
 library(nlme)
-# library(retrosheet)
-source(getdata.R)
+source("getdata.R")
 # load("./data/parsedData.RData")
 
 # sigma-hat0

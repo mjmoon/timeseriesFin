@@ -76,7 +76,8 @@ head(scoreSeasons$S2010)
 parseCovs <- function(season){
   tmp <- subset(season, HmVis == 1, select = c("Date", "Tind", "DblHdr", "Host"))
   row.names(tmp) <- NULL
-  tmp <- cbind(tmp[,c(1,2)], model.matrix(~tmp$DblHdr + tmp$Host)[,-1])
+  # tmp <- cbind(tmp[,c(1,2)], model.matrix(~tmp$DblHdr + tmp$Host)[,-1])
+  tmp <- cbind(tmp[,c(1,2)], model.matrix(~tmp$DblHdr + tmp$Host))
   return(tmp)
 }
 
