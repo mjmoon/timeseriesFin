@@ -55,18 +55,19 @@ x_post <- function(t, seasoni, x0, sig0, sigV, sigW, u, clevel = 0){
 
 ## test ##
 # third game of 2010
-x_post(5, 1, x0s[,1], pars[1], pars[2], pars[3], meanYs[1], 0) # x_3|2
+# x_post(5, 1, x0s[,1], pars[1], pars[2], pars[3], meanYs[1], 0) # x_3|2
 # sum(x_post(10, 1, x0, sigW, sigV, u[1], 0))
 
 # likelihood function
 # equation 21 of the paper
 set.seed(20160806)
-pars <- c(rbeta(3, 1, 1))
+pars <- c(100,100,100, rnorm(1, 2))
 
-loglike <- function(pars, t, seasoni, x0, u){
+loglike <- function(pars, t, seasoni, x0, u = NULL){
   sig0 <- pars[1]
   sigV <- pars[2]
   sigW <- pars[3]
+  if(!is.na(pars[4])) u = pars[4]
   
   Ct <- getC(t, seasoni)
   Dt <- getD(t, seasoni, 0)
@@ -80,43 +81,56 @@ loglike <- function(pars, t, seasoni, x0, u){
   
   ydiff <- Yt - yhat
   
-  loglik <- log(det(Ohat)) - t(ydiff)%*%solve(Ohat)%*%ydiff
-  return(-as.numeric(loglik))
+  loglik <- log(det(Ohat)) + t(ydiff)%*%solve(Ohat)%*%ydiff
+  return(as.numeric(loglik))
 }
 
 ## total -log-like (optim will minimize the function)
-nLoglike <- function(pars, seasoni, x0s, us, numdts = 20){
+nLoglike <- function(pars, seasoni, x0s, us = NULL, numdts = 20){
   x0 <- x0s[,seasoni]
   u <- us[seasoni]
   gamedays <- c(1: numdts)
-  -sum(sapply(gamedays, FUN = loglike, pars = pars, 
+  sum(sapply(gamedays, FUN = loglike, pars = pars, 
               seasoni = seasoni, x0 = x0, u = u))
 }
 
 ## test
-loglike(pars, 5, 1, x0s[,1], meanYs[1])
-nLoglike(pars, 3, x0s, meanYs)
+# loglike(pars[-4], 5, 1, x0s[,1], u = meanYs[1])
+# nLoglike(pars[-4], 3, x0s, meanYs)
 
 ## intercept only ##
 meanYs <- sapply(scoreSeasons, function(x) mean(x$ScoreDiff[1:20]))
-# parest1 <- optim(pars, nLoglike, seasoni = 1, x0s = x0s, us = meanYs,
-#                  method = "L-BFGS-B", 
-#                  lower = c(0.00001,0.00001,0.00001), upper = c(16,16,16))
-parest2 <- optim(pars, nLoglike, seasoni = 2, x0s = x0s, us = meanYs,
+
+## intercept
+t0 <- proc.time()
+parest2 <- optim(pars, nLoglike, seasoni = 2, x0s = x0s, 
                  method = "L-BFGS-B", 
-                 lower = c(0.00001,0.00001,0.00001), upper = c(16,16,16))
-parest3 <- optim(pars, nLoglike, seasoni = 3, x0s = x0s, us = meanYs,
+                 lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
+proc.time() - t0
+
+t0 <- proc.time()
+parest3 <- optim(pars, nLoglike, seasoni = 3, x0s = x0s, 
                  method = "L-BFGS-B", 
-                 lower = c(0.00001,0.00001,0.00001), upper = c(16,16,16))
-parest4 <- optim(pars, nLoglike, seasoni = 4, x0s = x0s, us = meanYs,
+                 lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
+proc.time() - t0
+
+t0 <- proc.time()
+parest4 <- optim(pars, nLoglike, seasoni = 4, x0s = x0s, 
                  method = "L-BFGS-B", 
-                 lower = c(0.00001,0.00001,0.00001), upper = c(16,16,16))
-parest5 <- optim(pars, nLoglike, seasoni = 5, x0s = x0s, us = meanYs,
+                 lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
+proc.time() - t0
+
+t0 <- proc.time()
+parest5 <- optim(pars, nLoglike, seasoni = 5, x0s = x0s, 
                  method = "L-BFGS-B", 
-                 lower = c(0.00001,0.00001,0.00001), upper = c(16,16,16))
-parest6 <- optim(pars, nLoglike, seasoni = 6, x0s = x0s, us = meanYs,
+                 lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
+proc.time() - t0
+
+t0 <- proc.time()
+parest6 <- optim(pars, nLoglike, seasoni = 6, x0s = x0s, 
                  method = "L-BFGS-B", 
-                 lower = c(0.00001,0.00001,0.00001), upper = c(16,16,16))
+                 lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
+proc.time() - t0
 
 # library(parallel)
 # cl <- makeCluster(2, type = "FORK")
@@ -127,9 +141,9 @@ parest6 <- optim(pars, nLoglike, seasoni = 6, x0s = x0s, us = meanYs,
 # proc.time() - t0
 
 ## get estimates for u using regression fit (MLE takes too long)
-uts <- t(sapply(dataSeasons, function(x) 
+utlm <- t(sapply(dataSeasons, function(x) 
   coef(lm(ScoreDiff ~ DblHdr + Host, data = subset(x, HmVis == 1)))))[-1,]
-sigmas <- rbind(parest2$par, 
+utoptim <- rbind(parest2$par, 
                 parest3$par, 
                 parest4$par, 
                 parest5$par, 

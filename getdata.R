@@ -1,6 +1,5 @@
 library(retrosheet)
 library(plyr)
-library(reshape2)
 yrs <- c(2010:2015)
 teamIds <- unique(c(sapply(yrs, getTeamIDs)))
 # Florida Marlins changed to Miami Marlins
@@ -116,8 +115,10 @@ getC18 <- function(t, seasoni){
   return(rbind(c, matrix(0, nrow = 18 - nrow(c), ncol = ncol(c))))
 }
 
-getD18 <- function(t, seasoni){
-  d <- getD(t, seasoni)
+getD18 <- function(t, seasoni, level = 2){
+  d <- getD(t, seasoni, level = level)
+  if(level == 0)
+    return(c(d, rep(0, 18 - length(d))))
   return(rbind(d, matrix(0, nrow = 18 - nrow(d), ncol = ncol(d))))
 }
 
