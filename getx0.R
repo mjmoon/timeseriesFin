@@ -1,19 +1,32 @@
-ALfinal <- read.table('./data/2009AL.txt', header=T)
-NLfinal <- read.table('./data/2009NL.txt', header=T)
-ALfinal$Lg <- "AL"
-NLfinal$Lg <- "NL"
-final <- rbind(ALfinal, NLfinal)
-# sort team according to wins
-final <- final[order(final$W, decreasing=TRUE), ]
-# assign initial rank centered at 0 with random errors
-final$str <- 14.5:-14.5
-# sort team according to team name
-ALfinal <- final[final$Lg == 'AL', ]
-NLfinal <- final[final$Lg == 'NL', ]
-ALfinal <- ALfinal[order(ALfinal$Tm), ]
-NLfinal <- NLfinal[order(NLfinal$Tm), ]
-ind <- grep("MIA", NLfinal$Tm)
-NLfinal[length(NLfinal$Tm) + 1, ] <- NLfinal[ind, ]
-NLfinal <- NLfinal[-ind, ]
-# x-hat0
-x0 <- rbind(ALfinal, NLfinal)$str
+### final rankings from 2009 to 2014 ###
+filenames <- list.files("./data/", pattern = "rank*")
+curwd <- getwd()
+setwd("./data/")
+franks <- lapply(filenames, read.csv) 
+setwd(curwd)
+
+getx0 <- function(rankscsv){
+  rankscsv <- rankscsv[-31,1:2]
+  rankscsv$x0 <- 14.5:-14.5
+  rankscsv$Tm <- as.character(rankscsv$Tm)
+  # rankscsv$Tm[!rankscsv$Tm %in% teamIds]
+  rankscsv$Tm[rankscsv$Tm == "NYY"] <- "NYA"
+  rankscsv$Tm[rankscsv$Tm == "LAA"] <- "ANA"
+  rankscsv$Tm[rankscsv$Tm == "LAD"] <- "LAN"
+  rankscsv$Tm[rankscsv$Tm == "STL"] <- "SLN"
+  rankscsv$Tm[rankscsv$Tm == "SFG"] <- "SFN"
+  rankscsv$Tm[rankscsv$Tm == "FLA"] <- "MIA"
+  rankscsv$Tm[rankscsv$Tm == "TBR"] <- "TBA"
+  rankscsv$Tm[rankscsv$Tm == "CHC"] <- "CHN"
+  rankscsv$Tm[rankscsv$Tm == "CHW"] <- "CHA"
+  rankscsv$Tm[rankscsv$Tm == "SDP"] <- "SDN"
+  rankscsv$Tm[rankscsv$Tm == "NYM"] <- "NYN"
+  rankscsv$Tm[rankscsv$Tm == "KCR"] <- "KCA"
+  rankscsv$Tm[rankscsv$Tm == "WSN"] <- "WAS"
+  rankscsv$Tm <- factor(rankscsv$Tm, teamIds)
+  # rankscsv$Tm[!rankscsv$Tm %in% teamIds]
+  rankscsv <- rankscsv[order(rankscsv$Tm), ]
+  return(rankscsv$x0)
+}
+
+x0s <- sapply(franks, getx0)

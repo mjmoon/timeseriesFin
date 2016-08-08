@@ -96,8 +96,12 @@ getC <- function(t, seasoni){
   return(as.matrix(getByTind(matchSeasons[[seasoni]], t)))
 }
 
-getD <- function(t, seasoni){
-  return(as.matrix(getByTind(covSeasons[[seasoni]], t)))
+getD <- function(t, seasoni, level = 2){
+  D <- as.matrix(getByTind(covSeasons[[seasoni]], t))
+  if(level < 2)
+    if(level > 0) D <- D[ , c(1:3)]
+    else D <- D[ , 1]
+  return(D)
 }
 
 getY <- function(t, seasoni){
