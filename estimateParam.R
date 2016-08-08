@@ -81,7 +81,8 @@ loglike <- function(pars, t, seasoni, x0, u = NULL){
   
   ydiff <- Yt - yhat
   
-  loglik <- log(det(Ohat)) + t(ydiff)%*%solve(Ohat)%*%ydiff
+  # gives negative likelihood
+  loglik <- log(det(Ohat)) + t(ydiff)%*%solve(Ohat)%*%ydiff 
   return(as.numeric(loglik))
 }
 
@@ -148,3 +149,6 @@ utoptim <- rbind(parest2$par,
                 parest4$par, 
                 parest5$par, 
                 parest6$par)
+utoptim[,1] <- utoptim[,1]*5
+utoptim[,2] <- utoptim[,2]*0.00001
+utoptim[,3] <- utoptim[,3]*0.5

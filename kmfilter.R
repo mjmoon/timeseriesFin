@@ -37,18 +37,17 @@ mlbkm <- function(seasoni, covs = F){
               gprederr = winprederr, smse = scoremse))
 }
 
-kmfres.int <- lapply(c(2:6), mlbkm)
-kmfres.cov <- lapply(c(2:6), mlbkm, covs = T)
-
 library(ggplot2)
 library(reshape2)
 getSmse <- function(res) {
   return(res$smse)
 }
-
 getGpred <- function(res) {
   return(res$gprederr)
 }
+
+kmfres.int <- lapply(c(2:6), mlbkm)
+kmfres.cov <- lapply(c(2:6), mlbkm, covs = T)
 
 smse.int <- data.frame(value = sapply(kmfres.int, getSmse))
 smse.cov <- data.frame(value = sapply(kmfres.cov, getSmse))
@@ -80,15 +79,16 @@ ggplot(data = subset(validdt, var == "smse")) + theme_minimal() +
   geom_bar(aes(x = season, y = value, fill = model), stat = "identity", 
            position = "dodge") +
   labs(x = "Season", y = "MSEs", title = "Score MSEs") +
-  scale_fill_discrete(guide = FALSE) +
-  coord_cartesian(ylim = c(27, 35)) 
+  scale_fill_discrete(guide = FALSE) 
+  # coord_cartesian(ylim = c(20, 25)) 
+  # coord_cartesian(ylim = c(27, 35)) 
 
 ggplot(data = subset(validdt, var == "perr")) + theme_minimal() +
   geom_bar(aes(x = season, y = value, fill = model), stat = "identity", 
            position = "dodge") +
   labs(x = "Season", y = "Error rates", title = "Game prediction error rates") +
   scale_fill_discrete(guide = FALSE) +
-  coord_cartesian(ylim = c(0.3,0.6))
+  coord_cartesian(ylim = c(0,1))
 
 xdt <- as.data.frame(rbind(x0s[,6], t(kmfres.int[[5]]$xpost)))
 names(xdt) <- teamIds
@@ -100,5 +100,5 @@ xdt.m$Day <- xdt.m$Day + 19
 ggplot(data = subset(xdt.m, Team == "TOR" | Team == "BAL" |
                        Team == "BOS" | Team == "NYA" | 
                        Team == "TBA")) + theme_minimal() +
-  geom_step(aes(x = Day, y = Rating, col = Team)) +
-  labs(title = "2015 AL Easton Division rating estimation") 
+  geom_line(aes(x = Day, y = Rating, col = Team)) +
+  labs(title = "2015 AL Easton Division rating estimation\nScaled parameters") 
