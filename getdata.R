@@ -92,3 +92,32 @@ getByTind <- function(x, tind){
   return(x[x$Tind == tind, -c(1,2), drop = F])
 }
 
+getC <- function(t, seasoni){
+  return(as.matrix(getByTind(matchSeasons[[seasoni]], t)))
+}
+
+getD <- function(t, seasoni){
+  return(as.matrix(getByTind(covSeasons[[seasoni]], t)))
+}
+
+getY <- function(t, seasoni){
+  return(as.matrix(getByTind(scoreSeasons[[seasoni]], t)))
+}
+
+# max number of games per day: 18
+# max(max(sapply(gamedays, function(x) length(getY(x, 6)))))
+
+getC18 <- function(t, seasoni){
+  c <- getC(t, seasoni)
+  return(rbind(c, matrix(0, nrow = 18 - nrow(c), ncol = ncol(c))))
+}
+
+getD18 <- function(t, seasoni){
+  d <- getD(t, seasoni)
+  return(rbind(d, matrix(0, nrow = 18 - nrow(d), ncol = ncol(d))))
+}
+
+getY18 <- function(t, seasoni){
+  y <- getY(t, seasoni)
+  return(c(y, rep(0, 18 - length(y))))
+}
