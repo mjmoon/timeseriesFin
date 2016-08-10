@@ -1,6 +1,7 @@
 library(retrosheet)
 library(plyr)
-yrs <- c(2010:2015)
+library(reshape2)
+yrs <- c(2011:2015)
 teamIds <- unique(c(sapply(yrs, getTeamIDs)))
 # Florida Marlins changed to Miami Marlins
 teamIds <- teamIds[teamIds != "FLO"]
@@ -8,7 +9,7 @@ teamIds <- teamIds[teamIds != "FLO"]
 # Variables: Teams, Scores, Date; DblHdr; 
 fields <- c("HmTm", "VisTm", "HmLine", "VisLine", "Date", "DblHdr")
 dataGame <- lapply(yrs, function(x) getPartialGamelog(x, fields)) 
-dataGameY <- lapply(dataGame, as.data.frame)
+dataGame <- lapply(dataGame, as.data.frame)
 
 parseSeason <- function(season){
   season$GID <- paste(paste(season$Date, season$HmTm, sep = "-"), season$DblHdr, sep = "")
@@ -46,9 +47,9 @@ parseSeason <- function(season){
   return(tmp[order(tmp$Date, tmp$Host), ])
 }
 
-dataSeasons <- lapply(dataGameY, parseSeason)
-names(dataSeasons) <- c("S2010", "S2011", "S2012", "S2013", "S2014", "S2015")
-head(dataSeasons$S2010)
+dataSeasons <- lapply(dataGame, parseSeason)
+names(dataSeasons) <- c("S2011", "S2012", "S2013", "S2014", "S2015")
+head(dataSeasons$S2011)
 # C data frame: match matrices by date with each row representing a single game 
 #               (home team: 1; away team: -1)
 parseMatches <- function(season){
@@ -60,16 +61,16 @@ parseMatches <- function(season){
 }
 
 matchSeasons <- lapply(dataSeasons, parseMatches)
-names(matchSeasons) <- c("S2010", "S2011", "S2012", "S2013", "S2014", "S2015")
+names(matchSeasons) <- c("S2011", "S2012", "S2013", "S2014", "S2015")
 
-head(matchSeasons$S2010)
+head(matchSeasons$S2011)
 
 # Y data frame: score differences by date for each game
 scoreSeasons <- lapply(dataSeasons, function(x) subset(x, HmVis == 1, 
                   select = c("Date", "Tind", "ScoreDiff")))
-names(scoreSeasons) <- c("S2010", "S2011", "S2012", "S2013", "S2014", "S2015")
+names(scoreSeasons) <- c("S2011", "S2012", "S2013", "S2014", "S2015")
 
-head(scoreSeasons$S2010)
+head(scoreSeasons$S2011)
 
 # D data frame: covariates matrices by date
 parseCovs <- function(season){
@@ -81,11 +82,11 @@ parseCovs <- function(season){
 }
 
 covSeasons <- lapply(dataSeasons, parseCovs)
-names(covSeasons) <- c("S2010", "S2011", "S2012", "S2013", "S2014", "S2015")
+names(covSeasons) <- c("S2011", "S2012", "S2013", "S2014", "S2015")
 
 head(covSeasons$S2010)
 
-save(matchSeasons, scoreSeasons, covSeasons, file = "./data/parsedData.RData")
+# save(matchSeasons, scoreSeasons, covSeasons, file = "./data/parsedData.RData")
 
 getByTind <- function(x, tind){
   return(x[x$Tind == tind, -c(1,2), drop = F])
@@ -108,7 +109,9 @@ getY <- function(t, seasoni){
 }
 
 # max number of games per day: 18
-# max(max(sapply(gamedays, function(x) length(getY(x, 6)))))
+# gamedays <- sapply(scoreSeasons, function(x) unique(x$Tind))
+# max(sapply(c(1:5), function(x) max(sapply(gamedays[[x]], function(y) length(getY(y, x))))))
+
 
 getC18 <- function(t, seasoni){
   c <- getC(t, seasoni)

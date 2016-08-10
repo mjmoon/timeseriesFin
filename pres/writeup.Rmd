@@ -1,0 +1,354 @@
+---
+title: "Predicting MLB game winners using the Kalman filter"
+author: "Michael Moon and Aaron Situ"
+date: "August 9, 2016"
+output: html_document
+---
+
+### Data ###
+#### Parsing retrosheet ####
+The data used for the study was retrieved using the package `retrosheet`. The package retrieves and parses MLB data from <http://www.retrosheet.org/>. The type of data that can be retrieved include play-by-play data, game logs, and schedules from as far back as 1871. 
+
+For the study, game logs for all regular season games from 2011 to 2015 seasons were downloaded. The following variables were included with the retrieved data.
+
++ **Date**: Game date
++ **HmTm**: Home team code
++ **VisTm**: Visiting team code
++ **HmLine**: Home team's final line score
++ **VisLine**: Visiting team's final line score
++ **DblHdr**: Doubleheader indicator (*0*: Not a doubleheader; *1*: 1st game of a doubleheader; *2*: 2nd game of a doubleheader)
+
+Below is the code used to retrieve and parse the score differentials. Each game was separated into two lines for each of the home and away team with an indicator variable.
+
++ **HmVis**: *+1*: Home team; *-1*: Visiting team
+
+```{r offwarn, include = FALSE}
+options(warn = -1, eval = FALSE)
+```
+
+```{r getdata, message = FALSE}
+library(retrosheet)
+yrs <- c(2011:2015)
+teamIds <- unique(c(sapply(yrs, getTeamIDs)))
+teamIds <- teamIds[teamIds != "FLO"] # Florida Marlins changed to Miami Marlins
+
+# Variables: Teams, Line scores, Date; DblHdr; 
+fields <- c("HmTm", "VisTm", "HmLine", "VisLine", "Date", "DblHdr")
+dataGame <- lapply(yrs, function(x) getPartialGamelog(x, fields)) 
+dataGame <- lapply(dataGame, as.data.frame)
+
+parseSeason <- function(season){
+  season$GID <- paste(paste(season$Date, season$HmTm, sep = "-"), season$DblHdr, sep = "")
+  season$Tind <- as.numeric(factor(season$Date))
+  season$Date <- as.Date(season$Date, "%Y%m%d")
+  season$DblHdr <- as.factor(season$DblHdr)
+  # Florida Marlins changed to Miami Marlins
+  season$VisTm[season$VisTm == "FLO"] <- "MIA"
+  season$VisTm <- factor(season$VisTm, teamIds)
+  season$HmTm[season$HmTm == "FLO"] <- "MIA"
+  season$HmTm <- factor(season$HmTm, teamIds)
+  season$Host <- season$HmTm
+  season$ScoreDiffHm <- 
+    sapply(strsplit(season$HmLine, ""), 
+           function(x) sum(as.numeric(x), na.rm = TRUE)) -
+    sapply(strsplit(season$VisLine, ""), 
+           function(x) sum(as.numeric(x), na.rm = TRUE))
+  tmpVis <- subset(season, select = c("GID", "Tind", "Date", "DblHdr", "VisTm", 
+                                      "Host", "ScoreDiffHm"))
+  names(tmpVis) <- c("GID", "Tind", "Date", "DblHdr", "Team", 
+                     "Host", "ScoreDiff")
+  tmpVis$ScoreDiff <- -tmpVis$ScoreDiff
+  tmpVis$HmVis <- -1
+  
+  
+  tmpHm <- subset(season, select = c("GID", "Tind", "Date", "DblHdr", "HmTm", 
+                                      "Host", "ScoreDiffHm"))
+  names(tmpHm) <- c("GID", "Tind", "Date", "DblHdr", "Team", 
+                     "Host", "ScoreDiff")
+  tmpHm$HmVis <- 1
+  
+  
+  tmp <- rbind(tmpVis, tmpHm)
+  return(tmp[order(tmp$Date, tmp$Host), ])
+}
+
+dataSeasons <- lapply(dataGame, parseSeason)
+names(dataSeasons) <- c( "S2011", "S2012", "S2013", "S2014", "S2015")
+```
+
+There were total `r sum(sapply(dataGame, nrow))`games. There Below is a sample of the data after parsing. 
+
+```{r}
+head(dataSeasons$S2011, 10)
+```
+
+#### Parsing schedules ####
+The following code was used to create the schedule matrices. $$C_t$$
+
+```{r createC}
+library(plyr)
+library(reshape2)
+parseMatches <- function(season){
+  tmp <- ddply(season, c("Date", "Tind"), 
+               function(x) dcast(x, GID ~ Team, sum, value.var = "HmVis"))
+  tmp[is.na(tmp)] <- 0
+  tmp <- tmp[c("Date", "Tind", teamIds)] # match the column order
+  return(tmp)
+}
+
+matchSeasons <- lapply(dataSeasons, parseMatches)
+names(matchSeasons) <- c("S2011", "S2012", "S2013", "S2014", "S2015")
+```
+
+Below is a sample of the schedule data after parsing. 
+
+```{r}
+head(matchSeasons$S2011, 10)
+```
+
+#### Parsing score differentials ####
+The following code was used to create the score differential vectors. $$y_t$$
+
+```{r createY}
+scoreSeasons <- lapply(dataSeasons, function(x) subset(x, HmVis == 1, 
+                  select = c("Date", "Tind", "ScoreDiff")))
+names(scoreSeasons) <- c("S2011", "S2012", "S2013", "S2014", "S2015")
+```
+
+Below is a sample of the score differential data after parsing.
+
+```{r}
+head(scoreSeasons$S2011)
+```
+
+#### Parsing covariates ####
+The following code was used to create the covariate matrices including an intercept term. $$D_t$$
+
+```{r createD}
+parseCovs <- function(season){
+  tmp <- subset(season, HmVis == 1, select = c("Date", "Tind", "DblHdr", "Host"))
+  row.names(tmp) <- NULL
+  tmp <- cbind(tmp[,c(1,2)], model.matrix(~tmp$DblHdr + tmp$Host))
+  return(tmp)
+}
+covSeasons <- lapply(dataSeasons, parseCovs)
+names(covSeasons) <- c("S2011", "S2012", "S2013", "S2014", "S2015")
+```
+
+Below is a sample of the covariate matrices after parsing.
+
+```{r}
+head(covSeasons$S2011)[,1:8]
+```
+```
+
+#### Accessing data ####
+To retrieve the matrices and vectors for each day `t`, the following `get` functions were created.
+
+```{r getFunctions}
+### get data for day t ###
+getByTind <- function(x, tind){
+  return(x[x$Tind == tind, -c(1,2), drop = F])
+}
+### get the schedule matrix for day t ###
+getC <- function(t, seasoni){
+  return(as.matrix(getByTind(matchSeasons[[seasoni]], t)))
+}
+### get the score differential vector for day t ###
+getY <- function(t, seasoni){
+  return(as.matrix(getByTind(scoreSeasons[[seasoni]], t)))
+}
+### get the covariate matrix for day t ###
+#### level = 2: intercept; doubleheader; hosting team
+#### level = 1: intercept; doubleheader
+#### level = 0: intercept only
+getD <- function(t, seasoni, level = 2){
+  D <- as.matrix(getByTind(covSeasons[[seasoni]], t))
+  if(level < 2)
+    if(level > 0) D <- D[ , c(1:3)]
+    else D <- D[ , 1]
+  return(D)
+}
+```
+
+For the Kalman filter functions used, the number of rows must match for different $t$'s. The following function was created to ensure all matrices and vectors had `r gamedays <- sapply(scoreSeasons, function(x) unique(x$Tind)); max(sapply(c(1:5), function(x) max(sapply(gamedays[[x]], function(y) length(getY(y, x))))))` - the maximum number of a game on a day - rows.
+
+```{r get18Functions}
+getC18 <- function(t, seasoni){
+  c <- getC(t, seasoni)
+  return(rbind(c, matrix(0, nrow = 18 - nrow(c), ncol = ncol(c))))
+}
+
+getD18 <- function(t, seasoni, level = 2){
+  d <- getD(t, seasoni, level = level)
+  if(level == 0)
+    return(c(d, rep(0, 18 - length(d))))
+  return(rbind(d, matrix(0, nrow = 18 - nrow(d), ncol = ncol(d))))
+}
+
+getY18 <- function(t, seasoni){
+  y <- getY(t, seasoni)
+  return(c(y, rep(0, 18 - length(y))))
+}
+```
+
+### Analysis ###
+#### Estimating parameters ####
+The following parameters were estimated prior to the Kalman filter algorithm.
+
+**System variances**
+
+$$\sigma_0^2, \sigma_v^2, \sigma_w^2 \in \mathbb{R}$$
+
+**Covariate coefficients**
+
+$$u = \{ u_1, \dots , u_{32} \} \in \mathbb{R}^{32}$$
+
+The coefficients include the intercept, $u_1$, coefficients for doubleheader dummy variables, $\{u_2, u_3, u_4\}$, and coefficients for hosting team dummy variables, $\{u_5, \dots , u_{32}\}$.
+
+For the fist intercept-only model, we estimated the paramters by maximizing the log-likelihood function given below. The likelihood function can be derived from the conditional distribution of  $y_t$. 
+
+**Conditional distribution**
+$$y_t|\mathcal{Y}_{t-1}\sim N(\hat{y}_t, \hat{O}_t) \\ \text{   where }\mathcal{Y}_t:=(y'_1,\dots,y'_t); \hat{y}_t=C_{t}\hat{x}_{t|t-1}+D_{t}u; \hat{O}_t=C_{t}\hat{\Sigma}_{t|t-1}C'_{t+1}+N_{t}$$
+**Density**
+$$f_{y_t|\mathcal{Y}_{t-1}}(y_t|\mathcal{Y}_{t-1}) \propto |\hat{O}_t|^{-1/2}  \text{exp}\left(-\frac{1}{2}(y_t-\hat{y}_t)'\hat{O}_t^{-1}(y_t-\hat{y}_t)\right)$$
+**Log-likelihood**
+$$\mathscr{l}(\sigma_0^2, \sigma_v^2, \sigma_w^2, u_1; \mathcal{Y}_T)=\sum_{t=1}^{\mathcal{Y}} \text{log }f_{y_t|\mathcal{Y}_{t-1}}(y_t|\mathcal{Y}_{t-1})$$
+
+The log-likelihood function was defined manually in R. First, the covariance matrix and the system state calculations were defined as below.
+
+**Predictive covariance matrix**
+$$\hat{\Sigma}_{t|t-1}=\hat{\Sigma}_{t-1|t-1}+M$$
+
+**Posterior covariance matrix**
+$$\hat{\Sigma}_{t|t}=\hat{\Sigma}_{t|t-1}-\hat{\Sigma}_{t|t-1}C'_t(C_t\hat{\Sigma}_{t|t-1}C'_t+N_t)^{-1}C_t\hat{\Sigma}_{t|t-1}$$
+
+**System state prediction**
+$$\hat{x}_{t|t-1}=\hat{x}_{t-1|t-1}$$
+
+**System state update**
+$$\hat{x}_{t|t}=\hat{x}_{t-1|t-1}+\hat{\Sigma}_{t|t}C'_tN_t^{-1}(y_t-C_t\hat{x}_{t-1|t-1}-D_tu)$$
+
+```{r updatefunctions}
+### Predictive covariance matrix ###
+sigma_pred <- function(t, seasoni, sig0, sigW, sigV){
+  sigma_post(t - 1, seasoni, sig0, sigV, sigW)
+}
+
+### Posterior covariance mtrix ###
+sigma_post <- function(t, seasoni, sig0, sigV, sigW){
+  if(t > 0){
+    Ct <- getC(t, seasoni) # C_t
+    mt <- nrow(Ct)  # m: number of games on day t
+    Nt <- sigW*diag(mt) # N: 
+    sprev <- sigma_pred(t, seasoni, sig0, sigV, sigW)
+    return(sprev - 
+             sprev%*%t(Ct)%*%
+             solve(Ct%*%sprev%*%t(Ct) + Nt)%*%
+             Ct%*%sprev)
+  }
+  else{
+    (sig0 + sigV)*diag(30)
+  }
+}
+
+### System state prediction ###
+x_pred <- function(t, seasoni, x0, sig0, sigV, sigW, u, clevel = 0){
+  x_post(t - 1, seasoni, x0, sig0, sigV, sigW, u, clevel)
+}
+
+### System state update ###
+x_post <- function(t, seasoni, x0, sig0, sigV, sigW, u, clevel = 0){
+  if(t > 0){
+    Ct <- getC(t, seasoni) # C_t
+    Dt <- getD(t, seasoni, clevel) # D_t
+    yt <- getY(t, seasoni) # y_t, point differentials on games in t-th game day
+    mt <- nrow(Ct)  # m: number of games on day t
+    Nt <- sigW*diag(mt) # N:
+    xprev <- x_post(t - 1, seasoni, x0, sig0, sigV, sigW, u, clevel) # X-hat_t-1 | t-1
+    spost <- sigma_post(t, seasoni, sig0, sigV, sigW) # Sigma-hat_t | t
+    if(clevel == 0)
+      return(xprev + (1/sigW)*spost%*%t(Ct)%*%(yt - Ct%*%xprev - u*Dt))
+    return(xprev + (1/sigW)*spost%*%t(Ct)%*%(yt - Ct%*%xprev - Dt%*%u))
+  }
+  else{
+    x0
+  }
+}
+```
+
+Then, the negative of log-likelihood function was defined as below.
+
+```{r nloglikelihood}
+### negative log-likelihood for a single game ###
+loglike <- function(pars, t, seasoni, x0, u = NULL){
+  sig0 <- pars[1]
+  sigV <- pars[2]
+  sigW <- pars[3]
+  if(!is.na(pars[4])) u = pars[4]
+  
+  Ct <- getC(t, seasoni)
+  Dt <- getD(t, seasoni, 0)
+  Yt <- getY(t, seasoni)
+  xpred <- x_pred(t, seasoni, x0, sig0, sigV, sigW, u)
+  spred <- sigma_pred(t, seasoni, sig0, sigV, sigW)
+  Nt <- sigW*diag(nrow(Ct))
+  
+  yhat <- Ct%*%xpred + u*Dt
+  Ohat <- Ct%*%spred%*%t(Ct) + Nt
+  
+  ydiff <- Yt - yhat
+  
+  # gives negative likelihood
+  loglik <- log(det(Ohat)) + t(ydiff)%*%solve(Ohat)%*%ydiff 
+  return(as.numeric(loglik))
+}
+
+### total negative log-likelihood for multiple games ###
+nLoglike <- function(pars, seasoni, x0s, us = NULL, numdts = 20){
+  x0 <- x0s[,seasoni]
+  u <- us[seasoni]
+  gamedays <- c(1: numdts)
+  sum(sapply(gamedays, FUN = loglike, pars = pars, 
+              seasoni = seasoni, x0 = x0, u = u))
+}
+```
+
+In order to minimize the negative log-likelihood function, `optim` function was used. The parameters were initialized with the following code.
+
+```{r initpar}
+set.seed(20160806)
+pars <- c(100,100,100, rnorm(1, 2))
+```
+
+The optimizations were performed for each season as shown below.
+
+```{r optimize}
+## intercept
+parest1 <- optim(pars, nLoglike, seasoni = 1, x0s = x0s, 
+                 method = "L-BFGS-B", 
+                 lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
+parest2 <- optim(pars, nLoglike, seasoni = 2, x0s = x0s, 
+                 method = "L-BFGS-B", 
+                 lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
+parest4 <- optim(pars, nLoglike, seasoni = 4, x0s = x0s, 
+                 method = "L-BFGS-B", 
+                 lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
+parest5 <- optim(pars, nLoglike, seasoni = 5, x0s = x0s, 
+                 method = "L-BFGS-B", 
+                 lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
+parest6 <- optim(pars, nLoglike, seasoni = 6, x0s = x0s, 
+                 method = "L-BFGS-B", 
+                 lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
+proc.time() - t0
+
+## get estimates for u using regression fit (MLE takes too long)
+utlm <- t(sapply(dataSeasons, function(x) 
+  coef(lm(ScoreDiff ~ DblHdr + Host, data = subset(x, HmVis == 1)))))[-1,]
+utoptim <- rbind(parest2$par, 
+                parest3$par, 
+                parest4$par, 
+                parest5$par, 
+                parest6$par)
+```
+

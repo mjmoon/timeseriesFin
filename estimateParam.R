@@ -60,9 +60,6 @@ x_post <- function(t, seasoni, x0, sig0, sigV, sigW, u, clevel = 0){
 
 # likelihood function
 # equation 21 of the paper
-set.seed(20160806)
-pars <- c(100,100,100, rnorm(1, 2))
-
 loglike <- function(pars, t, seasoni, x0, u = NULL){
   sig0 <- pars[1]
   sigV <- pars[2]
@@ -99,10 +96,19 @@ nLoglike <- function(pars, seasoni, x0s, us = NULL, numdts = 20){
 # loglike(pars[-4], 5, 1, x0s[,1], u = meanYs[1])
 # nLoglike(pars[-4], 3, x0s, meanYs)
 
+set.seed(20160806)
+pars <- c(100,100,100, rnorm(1, 2))
+
 ## intercept only ##
 meanYs <- sapply(scoreSeasons, function(x) mean(x$ScoreDiff[1:20]))
 
 ## intercept
+t0 <- proc.time()
+parest1 <- optim(pars, nLoglike, seasoni = 1, x0s = x0s, 
+                 method = "L-BFGS-B", 
+                 lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
+proc.time() - t0
+
 t0 <- proc.time()
 parest2 <- optim(pars, nLoglike, seasoni = 2, x0s = x0s, 
                  method = "L-BFGS-B", 
@@ -123,12 +129,6 @@ proc.time() - t0
 
 t0 <- proc.time()
 parest5 <- optim(pars, nLoglike, seasoni = 5, x0s = x0s, 
-                 method = "L-BFGS-B", 
-                 lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
-proc.time() - t0
-
-t0 <- proc.time()
-parest6 <- optim(pars, nLoglike, seasoni = 6, x0s = x0s, 
                  method = "L-BFGS-B", 
                  lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
 proc.time() - t0
