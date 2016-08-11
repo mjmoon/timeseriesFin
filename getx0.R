@@ -1,4 +1,4 @@
-### final rankings from 2009 to 2014 ###
+### final rankings from 2010 to 2014 ###
 filenames <- list.files("./data/", pattern = "rank*")
 curwd <- getwd()
 setwd("./data/")

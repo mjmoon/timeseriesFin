@@ -194,7 +194,7 @@ getY18 <- function(t, seasoni){
 
 ### Analysis ###
 #### Estimating parameters ####
-The following parameters were estimated prior to the Kalman filter algorithm.
+The following parameters were estimated prior to the Kalman filter algorithm. The first 20 games of each season were used to estimate the parameters and only the remaining matches were used in the Kalman filter.
 
 **System variances**
 
@@ -321,9 +321,54 @@ set.seed(20160806)
 pars <- c(100,100,100, rnorm(1, 2))
 ```
 
+The initial system states for each season, $x_{t|t}$, were initialized based on the previous year's final ranking. The final rankings for seasons from 2010 to 2015 were retrieved from <http://www.baseball-reference.com/>. The downloaded files can be found at <https://github.com/mjmoon/timeseriesFin/tree/master/data>. The state values were initalized such that the values summed to zero by subtracting the mean ranking.
+
+$$x_{0|0; \text{rank i}}:=15.5-i$$
+
+```{r initx}
+library(RCurl)
+franks <- list()
+gitURL <- getURL("https://rawgit.com/mjmoon/timeseriesFin/master/data/rank2010.csv")
+franks[[1]] <- read.csv(text = gitURL)
+gitURL <- getURL("https://rawgit.com/mjmoon/timeseriesFin/master/data/rank2011.csv")
+franks[[2]] <- read.csv(text = gitURL)
+gitURL <- getURL("https://rawgit.com/mjmoon/timeseriesFin/master/data/rank2012.csv")
+franks[[3]] <- read.csv(text = gitURL)
+gitURL <- getURL("https://rawgit.com/mjmoon/timeseriesFin/master/data/rank2013.csv")
+franks[[4]] <- read.csv(text = gitURL)
+gitURL <- getURL("https://rawgit.com/mjmoon/timeseriesFin/master/data/rank2014.csv")
+franks[[5]] <- read.csv(text = gitURL)
+
+getx0 <- function(rankscsv){
+  rankscsv <- rankscsv[-31,1:2]
+  rankscsv$x0 <- 14.5:-14.5
+  rankscsv$Tm <- as.character(rankscsv$Tm)
+  # rankscsv$Tm[!rankscsv$Tm %in% teamIds]
+  rankscsv$Tm[rankscsv$Tm == "NYY"] <- "NYA"
+  rankscsv$Tm[rankscsv$Tm == "LAA"] <- "ANA"
+  rankscsv$Tm[rankscsv$Tm == "LAD"] <- "LAN"
+  rankscsv$Tm[rankscsv$Tm == "STL"] <- "SLN"
+  rankscsv$Tm[rankscsv$Tm == "SFG"] <- "SFN"
+  rankscsv$Tm[rankscsv$Tm == "FLA"] <- "MIA"
+  rankscsv$Tm[rankscsv$Tm == "TBR"] <- "TBA"
+  rankscsv$Tm[rankscsv$Tm == "CHC"] <- "CHN"
+  rankscsv$Tm[rankscsv$Tm == "CHW"] <- "CHA"
+  rankscsv$Tm[rankscsv$Tm == "SDP"] <- "SDN"
+  rankscsv$Tm[rankscsv$Tm == "NYM"] <- "NYN"
+  rankscsv$Tm[rankscsv$Tm == "KCR"] <- "KCA"
+  rankscsv$Tm[rankscsv$Tm == "WSN"] <- "WAS"
+  rankscsv$Tm <- factor(rankscsv$Tm, teamIds)
+  # rankscsv$Tm[!rankscsv$Tm %in% teamIds]
+  rankscsv <- rankscsv[order(rankscsv$Tm), ]
+  return(rankscsv$x0)
+}
+
+x0s <- sapply(franks, getx0)
+```
+
 The optimizations were performed for each season as shown below.
 
-```{r optimize}
+```{r optimize, eval = FALSE}
 ## intercept
 parest1 <- optim(pars, nLoglike, seasoni = 1, x0s = x0s, 
                  method = "L-BFGS-B", 
@@ -340,15 +385,163 @@ parest5 <- optim(pars, nLoglike, seasoni = 5, x0s = x0s,
 parest6 <- optim(pars, nLoglike, seasoni = 6, x0s = x0s, 
                  method = "L-BFGS-B", 
                  lower = c(5,5,5,-0.1), upper = c(1000,1000,1000,1.5))
-proc.time() - t0
-
-## get estimates for u using regression fit (MLE takes too long)
-utlm <- t(sapply(dataSeasons, function(x) 
-  coef(lm(ScoreDiff ~ DblHdr + Host, data = subset(x, HmVis == 1)))))[-1,]
-utoptim <- rbind(parest2$par, 
-                parest3$par, 
-                parest4$par, 
-                parest5$par, 
-                parest6$par)
+utoptim <- rbind(parest1$par, parest2$par, parest3$par, parest4$par, parest5$par)
+colnames(utoptim) <- c("sig0", "sigV", "sigW", "u_intercept")
+rownames(utoptim) <- c("S2011", "S2012", "S2013", "S2014", "S2015")
+print(round(utoptim,2))
 ```
+
+```{r optimizeTmp, echo = FALSE}
+utoptim <- matrix(rep(c(200, 0.005, 2.5, 2.5), 5), nrow = 5, ncol = 4, byrow = TRUE)
+colnames(utoptim) <- c("sig0", "sigV", "sigW", "u_intercept")
+rownames(utoptim) <- c("S2011", "S2012", "S2013", "S2014", "S2015")
+print(round(utoptim,2))
+```
+
+For the second model, the maximum likelihood estimation was not conducted in order to save the computational time. Instead, the same estimates were used for the system variances while the coefficients for the covariates were estimated using linear regression on the first 20 games. 
+
+$$y=Du+\epsilon \text{ where } \epsilon \sim N(0,\sigma^2)$$
+
+```{r lmu}
+utlm <- t(sapply(dataSeasons, function(x) 
+  coef(lm(ScoreDiff ~ DblHdr + Host, data = subset(x, HmVis == 1)))))
+rownames(utlm) <- c("S2011", "S2012", "S2013", "S2014", "S2015")
+print(round(utlm,2))
+```
+
+#### The Kalman filter ####
+
+The Kalman filter was fitted using the `FKF` <https://cran.r-project.org/web/packages/FKF/FKF.pdf> package. 
+
+```{r kmfilter, message = FALSE}
+library(FKF)
+mlbkm <- function(seasoni, covs = F){
+  if(covs) {
+    u <- array(c(utoptim[seasoni,-c(1:3)], utlm[seasoni,]), c(32,1))
+    level <- 2
+  } else {
+    u <- array(utoptim[seasoni, 4], c(1, 1))
+    level <- 0
+  }
+  gamedays <- which(!unique(scoreSeasons[[seasoni]]$Tind) %in% c(1:20))
+  yt <- sapply(gamedays, getY18, seasoni)
+  Ct <- sapply(gamedays, getC18, seasoni, simplify = "array")
+  Dt <- sapply(gamedays, getD18, seasoni, level, simplify = "array")
+  if(!covs) Dt <- array(Dt, dim = c(18, 1, ncol(Dt)))
+  uDt <- apply(Dt, 3, function(x) x%*%u)
+  
+  testkf <- fkf(a0 = x0s[,seasoni], 
+                P0 = utoptim[seasoni, 1]*diag(30),
+                dt = matrix(0, nrow = 30, ncol = 1),
+                ct = uDt, 
+                Tt = array(diag(30), c(30,30,1)),
+                Zt = Ct,
+                HHt = array(utoptim[seasoni, 2]*diag(30), c(30,30,1)), 
+                GGt = array(utoptim[seasoni, 3]*diag(18), c(18,18,1)),
+                yt)
+  
+  xtts <- testkf$att
+  xts <- testkf$at
+  yts <- yt - round(testkf$vt)
+  ytvec <- as.vector(yt)
+  winprederr <- sum((as.vector(yts > 0)[ytvec != 0]) != 
+                       (ytvec[ytvec != 0] > 0))/sum(ytvec != 0)
+  scoremse <- sum((as.vector(testkf$vt)[ytvec != 0])^2)/sum(ytvec != 0)
+  return(list(xpost = xtts, xpred = xts, ypred = yts,
+              gprederr = winprederr, smse = scoremse))
+}
+### Fit intercept-only model ###
+kmfres.int <- lapply(c(1:5), mlbkm)
+### Fit covariate model ###
+kmfres.cov <- lapply(c(1:5), mlbkm, covs = T)
+```
+
+```{r validdt, include = FALSE}
+getSmse <- function(res) {
+  return(res$smse)
+}
+getGpred <- function(res) {
+  return(res$gprederr)
+}
+
+smse.int <- data.frame(value = sapply(kmfres.int, getSmse))
+smse.cov <- data.frame(value = sapply(kmfres.cov, getSmse))
+
+perr.int <- data.frame(value = sapply(kmfres.int, getGpred))
+perr.cov <- data.frame(value = sapply(kmfres.cov, getGpred))
+
+smse.int$model <- "Intercept-only"
+smse.cov$model <- "With covariates"
+
+perr.int$model <- "Intercept-only"
+perr.cov$model <- "With covariates"
+
+smse.int$var <- "smse"
+smse.cov$var <- "smse"
+
+perr.int$var <- "perr"
+perr.cov$var <- "perr"
+
+smse.int$season <- c(2011:2015)
+smse.cov$season <- c(2011:2015)
+
+perr.int$season <- c(2011:2015)
+perr.cov$season <- c(2011:2015)
+
+validdt <- rbind(smse.int, smse.cov, perr.int, perr.cov)
+```
+
+###Results###
+
+```{r plotxt, echo = FALSE}
+library(ggplot2)
+xdt <- as.data.frame(rbind(x0s[,5], t(kmfres.int[[5]]$xpost)))
+names(xdt) <- teamIds
+xdt.m <- melt(as.matrix(xdt))
+names(xdt.m) <- c("Day", "Team", "Rating")
+xdt.m$Day <- xdt.m$Day + 19
+ggplot(data = subset(xdt.m, Team == "TOR" | Team == "BAL" |
+                       Team == "BOS" | Team == "NYA" | 
+                       Team == "TBA")) + theme_minimal() +
+  geom_line(aes(x = Day, y = Rating, col = Team)) +
+  labs(title = "2015 AL Easton Division rating estimation") 
+```
+
+The plot above shows the estimated relative team strengths of the 5 teams in AL Easton Division during the 2015 season. The graph shows little difference between teams.
+
+```{r plotvalid, echo = FALSE}
+ggplot(data = subset(validdt, var == "smse")) + theme_minimal() +
+  geom_bar(aes(x = season, y = value, fill = model), stat = "identity", 
+           position = "dodge") +
+  labs(x = "Season", y = "MSEs", title = "Score MSEs") +
+  scale_fill_discrete(name = "Models") 
+
+ggplot(data = subset(validdt, var == "perr")) + theme_minimal() +
+  geom_bar(aes(x = season, y = value, fill = model), stat = "identity", 
+           position = "dodge") +
+  labs(x = "Season", y = "Error rates", title = "Game prediction error rates") +
+  scale_fill_discrete(name = "Models") +
+  coord_cartesian(ylim = c(0,1))
+```
+
+The two plots above show mean squared errors of score predictions and prediction error rates of game winners for each season from the two models. Both models could only predict the game winners about 50% of the time. Adding the doubleheader and hosting team covariates did not help improve the prediciton error rate nor the mean squared errors. 
+
+### Discussion ###
+
+#### Conclusion ####
+
+The state-space models and the Kalman filter used in this study resulted in a prediction error rate of ~50%. The poor performance contrasts the performace of the NBA model presented in the original paper. Its model was able to predict ~65% to ~70% of the game winners.
+
+Also, there was no improvement in performance when doubleheader and hosting team covariates were added. The covariates were added to test if doubleheaders and different teams had different amount of home advantages. The model was not able to detect any differences in the final score differences caused by these covariates.
+
+#### Further improvements ####
+
++ **Parameter calibration**: In this study, only the first 20 games of each season were used to calibrate the parameters. In the original study, an entire season - the current or the previous - was used. Increasing the number of the current season games used to estimate the parameters or using the previous season may improve the performance of the model.
++ **Covariate selection**: The covariate model in this study only used static information. However, dynamic covariates may be used to estimate the score differences. These may include information on players on streak, starting pitcher's ERA, team's recent batting average, etc. 
+
+#### Utilization ####
+
++ ...
+
+### References ###
 
